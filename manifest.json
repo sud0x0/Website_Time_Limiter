@@ -1,0 +1,36 @@
+{
+    "manifest_version": 3,
+    "name": "Website Time Limiter",
+    "version": "1.0",
+    "description": "Limit daily time spent on specific websites per day.",
+    "permissions": [
+        "storage",
+        "tabs",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon.png",
+            "32": "icons/icon.png",
+            "48": "icons/icon.png",
+            "128": "icons/icon.png"
+        }
+    },
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "settings.html"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}

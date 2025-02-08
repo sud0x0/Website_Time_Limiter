@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Website Time Limiter</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border: 1px solid black;
+            padding: 8px;
+            text-align: left;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Website Time Limiter</h1>
+    <button id="settingsButton">Settings</button>
+    <h2>Added Websites</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Website</th>
+                <th>Time Spent</th>
+                <th>Time Limit</th>
+                <th>Resets</th>
+            </tr>
+        </thead>
+        <tbody id="websiteList"></tbody>
+    </table>
+    <script src="popup.js"></script>
+</body>
+
+</html>
