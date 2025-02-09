@@ -1,3 +1,5 @@
+// BUG FIX: The tracker stops running when the user moves to a tab that should be tracked from a different browser window. 
+
 // Initialize predefined URLs with time limits (in milliseconds)
 const predefinedUrls = {
     "www.reddit.com": 30 * 60 * 1000, // 30 minute
@@ -30,7 +32,7 @@ chrome.runtime.onInstalled.addListener(() => {
         const webSiteInformation = result.webSiteInformation || {};
 
         for (const domain in predefinedUrls) {
-            webSiteInformation[domain] = { timeSpent: 0, resets: 0, timeLimit: predefinedUrls[domain], Date: new Date().toDateString(), whoIsTracking: 0 };
+            webSiteInformation[domain] = { timeSpent: 0, resets: 0, timeLimit: predefinedUrls[domain], date: new Date().toDateString(), whoIsTracking: 0 };
         }
 
         chrome.storage.sync.set({ webSiteInformation }, () => {
@@ -65,12 +67,62 @@ function getStorageData(key) {
     });
 }
 
-function updatewebSiteInformation(domain, timeSpent, resets, timeLimit, Date, whoIsTracking) {
+function updatewebSiteInformation(domain, timeSpent, resets, timeLimit, date, whoIsTracking) {
     chrome.storage.sync.get(['webSiteInformation'], (result) => {
         const webSiteInformation = result.webSiteInformation;
-        webSiteInformation[domain] = { timeSpent, resets, timeLimit, Date, whoIsTracking };
+        webSiteInformation[domain].timeSpent = timeSpent;
+        webSiteInformation[domain].resets = resets;
+        webSiteInformation[domain].timeLimit = timeLimit;
+        webSiteInformation[domain].date = date;
+        webSiteInformation[domain].whoIsTracking = whoIsTracking;
         chrome.storage.sync.set({ webSiteInformation });
     });
+}
+
+// Run isTodayNewDay when the browser becomes active
+chrome.idle.onStateChanged.addListener(async (state) => {
+    if (state === 'active') {
+        const webSiteInformation = getStorageData('webSiteInformation');
+        for (const domain in webSiteInformation) {
+            await isTodayNewDay(domain);
+        }
+    }
+});
+
+// Run isTodayNewDay at 00:00 everyday (if the browser is open)
+function getNextMidnight() {
+    const now = new Date();
+    now.setHours(24, 0, 0, 0);
+    return now.getTime();
+}
+
+chrome.alarms.create('newDay', { when: getNextMidnight(), periodInMinutes: 1440 });
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+    if (alarm.name === 'newDay') {
+        const webSiteInformation = await getStorageData('webSiteInformation');
+        for (const domain in webSiteInformation) {
+            await isTodayNewDay(domain);
+        }
+    }
+});
+
+// On startup, check if the day is new
+chrome.runtime.onStartup.addListener(async () => {
+    const webSiteInformation = await getStorageData('webSiteInformation');
+    for (const domain in webSiteInformation) {
+        await isTodayNewDay(domain);
+    }
+});
+
+// If the day is new, reset the time spent, resets and whoistracking values.
+async function isTodayNewDay(domain) {
+    const webSiteInformation = await getStorageData('webSiteInformation');
+    const today = new Date().toDateString();
+    if (webSiteInformation[domain].date !== today) {
+        // This leads to a race condition. If other threads are tracking a given domain this may not work, as they will overide the values. This can be fixed by adding day checking to the tracking function.
+        updatewebSiteInformation(domain, 0, 0, webSiteInformation[domain].timeLimit, today, 0);
+    }
 }
 
 // Get the active window ID upon window creation
@@ -93,7 +145,6 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
             activeDomain = new URL(tab.url).hostname;
             const isIn = await shouldTrack(tab.url);
             if (isIn) {
-                await isTodayNewDay(activeDomain);
                 await trackTimeSpent(activeTabId, tab.url, activeWindowId, frequency);
             }
         } catch (e) {
@@ -124,7 +175,6 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
             activeWindowId = tab.windowId;
             const isIn = await shouldTrack(tab.url);
             if (isIn) {
-                await isTodayNewDay(activeDomain);
                 await trackTimeSpent(activeTabId, tab.url, activeWindowId, frequency);
             }
         } catch (e) {
@@ -133,27 +183,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
 });
 
-// If the day is new, reset the time spent, resets and whoistracking values.
-async function isTodayNewDay(domain) {
-    const webSiteInformation = await getStorageData('webSiteInformation');
-    if (webSiteInformation[domain].Date != new Date().toDateString()) {
-        updatewebSiteInformation(domain, 0, 0, webSiteInformation[domain].timeLimit, new Date().toDateString(), 0);
-    }
-}
-
 // Check whether the URL and Domain are in the given lists.
 async function shouldTrack(url) {
     const domain = new URL(url).hostname;
 
     const webSiteInformation = await getStorageData('webSiteInformation');
     if (!webSiteInformation.hasOwnProperty(domain)) {
-        console.log(`Domain: ${domain} is not in the webSiteInformation storage.`);
+        // console.log(`Domain: ${domain} is not in the webSiteInformation storage.`);
         return false;
     }
 
     const websiteAllowList = await getStorageData('websiteAllowList');
     if (websiteAllowList.hasOwnProperty(url)) {
-        console.log(`URL is in the allow list: ${url}`);
+        // console.log(`URL is in the allow list: ${url}`);
         return false;
     }
 
@@ -165,12 +207,12 @@ async function trackTimeSpent(tabId, url, windowId, frequency) {
     var thisRunsTrackingNumber = 0;
     const domain = new URL(url).hostname;
     if (activeTabId !== undefined && activeDomain !== undefined && activeWindowId !== undefined) {
-        console.log("Tracking function called.");
+        // console.log("Tracking function called.");
 
         // Get the whoistracking value of the domain and give a new value. This is to stop the interval if another thread is tracking the same domain.
         const webSiteInformation = await getStorageData('webSiteInformation');
         thisRunsTrackingNumber = webSiteInformation[domain].whoIsTracking + 1;
-        updatewebSiteInformation(domain, webSiteInformation[domain].timeSpent, webSiteInformation[domain].resets, webSiteInformation[domain].timeLimit, webSiteInformation[domain].Date, thisRunsTrackingNumber);
+        updatewebSiteInformation(domain, webSiteInformation[domain].timeSpent, webSiteInformation[domain].resets, webSiteInformation[domain].timeLimit, webSiteInformation[domain].date, thisRunsTrackingNumber);
 
         var interval = setInterval(async function () {
             if (activeTabId != tabId || activeWindowId != windowId || activeDomain != domain) {
@@ -181,9 +223,9 @@ async function trackTimeSpent(tabId, url, windowId, frequency) {
                 const limitPassed = await checkTimeLimitPassed(domain, webSiteInformationNew[domain].timeSpent, webSiteInformationNew[domain].timeLimit);
                 const isIn = await shouldTrack(url);
                 if (!limitPassed && currentTracker === thisRunsTrackingNumber && isIn) {
-                    console.log(`Domain: ${domain} is tracking now.`);
+                    // console.log(`Domain: ${domain} is tracking now.`);
                     const newTimeSpent = webSiteInformationNew[domain].timeSpent + frequency;
-                    updatewebSiteInformation(domain, newTimeSpent, webSiteInformationNew[domain].resets, webSiteInformationNew[domain].timeLimit, webSiteInformationNew[domain].Date, webSiteInformationNew[domain].whoIsTracking);
+                    updatewebSiteInformation(domain, newTimeSpent, webSiteInformationNew[domain].resets, webSiteInformationNew[domain].timeLimit, webSiteInformationNew[domain].date, webSiteInformationNew[domain].whoIsTracking);
                 } else {
                     clearInterval(interval);
                 }
@@ -197,7 +239,7 @@ async function trackTimeSpent(tabId, url, windowId, frequency) {
 // Check if the time limit is exceeded
 async function checkTimeLimitPassed(domain, timeSpent, timeLimit) {
     if (timeSpent > timeLimit) {
-        console.log(`Time limit exceeded for ${domain}: ${timeSpent} ms`);
+        // console.log(`Time limit exceeded for ${domain}: ${timeSpent} ms`);
         blockWebsite(domain);
         return true;
     }
@@ -216,7 +258,7 @@ async function blockWebsite(domain) {
             if (isIn) {
                 await removeTab(tab.id);
             }
-            console.log(`Blocked access to ${domain} by closing tab ${tab.id}`);
+            //  console.log(`Blocked access to ${domain} by closing tab ${tab.id}`);
         }
     } catch (error) {
         console.error(`Failed to block website ${domain}:`, error);

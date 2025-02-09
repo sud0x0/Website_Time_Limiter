@@ -121,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         chrome.storage.sync.get(['webSiteInformation'], (result) => {
             const webSiteInformation = result.webSiteInformation || {};
-            webSiteInformation[website] = { timeSpent: 0, resets: 0, timeLimit: timeLimit * 60 * 1000, Date: new Date().toDateString(), whoIsTracking: 0 }
+            webSiteInformation[website] = { timeSpent: 0, resets: 0, timeLimit: timeLimit * 60 * 1000, date: new Date().toDateString(), whoIsTracking: 0 }
             chrome.storage.sync.set({ webSiteInformation }, () => {
                 console.log(`Added ${website} with time limit ${timeLimit} minutes`);
                 location.reload();
